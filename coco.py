@@ -45,9 +45,9 @@ import zipfile
 import urllib.request
 import shutil
 
-from config import Config
-import utils
-import model as modellib
+from .config import Config
+from . import utils
+# import model as modellib
 
 import torch
 

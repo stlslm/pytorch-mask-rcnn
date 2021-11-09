@@ -1137,7 +1137,7 @@ def compute_losses(rpn_match, rpn_bbox, rpn_class_logits, rpn_pred_bbox, target_
 ############################################################
 
 def load_image_gt(dataset, config, image_id, augment=False,
-                  use_mini_mask=False):
+                  use_mini_mask=False, is_coco=False):
     """Load and return ground truth data for an image (image, mask, bounding boxes).
 
     augment: If true, apply random image augmentation. Currently, only
@@ -1157,15 +1157,28 @@ def load_image_gt(dataset, config, image_id, augment=False,
         of the image unless use_mini_mask is True, in which case they are
         defined in MINI_MASK_SHAPE.
     """
+    # load bbox for coco
+    if is_coco:
+        bbox = dataset.load_bbox(image_id)
+
     # Load image and mask
     image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
-    image, window, scale, padding = utils.resize_image(
-        image,
-        min_dim=config.IMAGE_MIN_DIM,
-        max_dim=config.IMAGE_MAX_DIM,
-        padding=config.IMAGE_PADDING)
+    if is_coco:
+        image, window, scale, padding, bbox = utils.resize_image(
+            image,
+            min_dim=config.IMAGE_MIN_DIM,
+            max_dim=config.IMAGE_MAX_DIM,
+            padding=config.IMAGE_PADDING,
+            bbox=bbox)
+    else:
+        image, window, scale, padding = utils.resize_image(
+            image,
+            min_dim=config.IMAGE_MIN_DIM,
+            max_dim=config.IMAGE_MAX_DIM,
+            padding=config.IMAGE_PADDING,
+            bbox=None)
     mask = utils.resize_mask(mask, scale, padding)
 
     # Random horizontal flips.
@@ -1177,7 +1190,8 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Bounding boxes. Note that some boxes might be all zeros
     # if the corresponding mask got cropped out.
     # bbox: [num_instances, (y1, x1, y2, x2)]
-    bbox = utils.extract_bboxes(mask)
+    if not is_coco:
+        bbox = utils.extract_bboxes(mask)
 
     # Active classes
     # Different datasets have different classes, so track the
@@ -1356,7 +1370,7 @@ class Dataset(torch.utils.data.Dataset):
         image_id = self.image_ids[image_index]
         image, image_metas, gt_class_ids, gt_boxes, gt_masks = \
             load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
-                          use_mini_mask=self.config.USE_MINI_MASK)
+                          use_mini_mask=self.config.USE_MINI_MASK, is_coco=self.dataset.image_info[image_id]["source"]=="coco")
 
         # Skip images that have no instances. This can happen in cases
         # where we train on a subset of classes and the image doesn't

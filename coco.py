@@ -305,6 +305,17 @@ class CocoDataset(utils.Dataset):
         m = maskUtils.decode(rle)
         return m
 
+class BopCocoDataset(CocoDataset):
+    def load_bbox(self, image_id):
+        image_info = self.image_info[image_id]
+
+        bbox = []
+        annotations = self.image_info[image_id]["annotations"]
+        for annotation in annotations:
+            if annotation["image_id"]  == image_id:
+                bbox.append(annotation["bbox"])
+
+        return np.array(bbox)
 
 ############################################################
 #  COCO Evaluation

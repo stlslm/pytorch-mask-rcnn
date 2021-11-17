@@ -26,6 +26,7 @@ from . import visualize
 # from nms.nms_wrapper import nms
 # from roialign.roi_align.crop_and_resize import CropAndResizeFunction
 
+from .coco import SlmCocoDataset
 
 ############################################################
 #  Logging Utility Functions
@@ -1160,6 +1161,9 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # load bbox for coco
     if is_coco:
         bbox = dataset.load_bbox(image_id)
+        iscrowd = dataset.load_iscrowd(image_id)
+        if not isinstance(dataset, SlmCocoDataset):
+            area = dataset.load_area(image_id)
 
     # Load image and mask
     image = dataset.load_image(image_id)
@@ -1207,7 +1211,18 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Image meta data
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-    return image, image_meta, class_ids, bbox, mask
+    def xywh2xyxy(bbox):
+        """ convert bbox format (x,y,w,h) to (x0,y0,x1,y1) """
+        bbox[:,2] += bbox[:,0]
+        bbox[:,3] += bbox[:,1]
+        return bbox
+
+    if not is_coco:
+        return image, image_meta, class_ids, xywh2xyxy(bbox), mask
+    elif not isinstance(dataset, SlmCocoDataset):
+        return image, image_meta, class_ids, xywh2xyxy(bbox), mask, area, iscrowd
+    else:
+        return image, image_meta, class_ids, xywh2xyxy(bbox), mask, iscrowd
 
 def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     """Given the anchors and GT boxes, compute overlaps and identify positive
@@ -1368,9 +1383,20 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, image_index):
         # Get GT bounding boxes and masks for image.
         image_id = self.image_ids[image_index]
-        image, image_metas, gt_class_ids, gt_boxes, gt_masks = \
+        is_coco = self.dataset.image_info[image_id]["source"]=="coco"
+
+        if not is_coco:
+            image, image_metas, gt_class_ids, gt_boxes, gt_masks = \
+                load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+                            use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+        elif not isinstance(self.dataset, SlmCocoDataset):
+            image, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_area, gt_iscrowd = \
             load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
-                          use_mini_mask=self.config.USE_MINI_MASK, is_coco=self.dataset.image_info[image_id]["source"]=="coco")
+                          use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+        else:
+            image, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_iscrowd = \
+            load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+                          use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
 
         # Skip images that have no instances. This can happen in cases
         # where we train on a subset of classes and the image doesn't
@@ -1403,7 +1429,12 @@ class Dataset(torch.utils.data.Dataset):
         gt_boxes = torch.from_numpy(gt_boxes).float()
         gt_masks = torch.from_numpy(gt_masks.astype(int).transpose(2, 0, 1)).float()
 
-        return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks
+        if not is_coco:
+            return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks
+        elif not isinstance(self.dataset, SlmCocoDataset):
+            return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks, gt_area, gt_iscrowd
+        else:
+            return images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_iscrowd
 
     def __len__(self):
         return self.image_ids.shape[0]

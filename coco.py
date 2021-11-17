@@ -50,6 +50,7 @@ from . import utils
 # import model as modellib
 
 import torch
+from torch.autograd import Variable
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -316,6 +317,90 @@ class BopCocoDataset(CocoDataset):
                 bbox.append(annotation["bbox"])
 
         return np.array(bbox)
+
+    def load_area(self, image_id):
+        image_info = self.image_info[image_id]
+
+        areas = []
+        annotations = self.image_info[image_id]["annotations"]
+        for annotation in annotations:
+            if annotation["image_id"]  == image_id:
+                areas.append(annotation["area"])
+
+        return np.array(areas)
+
+    def load_iscrowd(self, image_id):
+        image_info = self.image_info[image_id]
+
+        iscrowds = []
+        annotations = self.image_info[image_id]["annotations"]
+        for annotation in annotations:
+            if annotation["image_id"]  == image_id:
+                iscrowds.append(annotation["iscrowd"])
+
+        return np.array(iscrowds)
+
+class SlmCocoDataset(BopCocoDataset):
+
+    def load_coco(self, dataset_dir, subset='Images', json_name='trainval', year=DEFAULT_DATASET_YEAR, class_ids=None,
+                class_map=None, return_coco=False, auto_download=False):
+        """Load a subset of the COCO dataset.
+        dataset_dir: The root directory of the COCO dataset.
+        subset: What to load (train, val, minival, valminusminival)
+        year: What dataset year to load (2014, 2017) as a string, not an integer
+        class_ids: If provided, only loads images that have the given classes.
+        class_map: TODO: Not implemented yet. Supports maping classes from
+            different datasets to the same class ID.
+        return_coco: If True, returns the COCO object.
+        auto_download: Automatically download and unzip MS-COCO images and annotations
+
+            Slm folder structure is like:
+            dataset_dir/Images/trainval.json for training
+        """
+
+        if auto_download is True:
+            self.auto_download(dataset_dir, subset, year)
+
+        coco = COCO("{}/{}/{}.json".format(dataset_dir, subset, json_name))
+        if subset == "Images" or subset == "DetectImages":
+            # subset = "val"
+            pass
+        image_dir = "{}/{}".format(dataset_dir, subset)
+
+        # Load all classes or a subset?
+        if not class_ids:
+            # All classes
+            class_ids = sorted(coco.getCatIds())
+
+        # All images or a subset?
+        if class_ids:
+            image_ids = []
+            for id in class_ids:
+                image_ids.extend(list(coco.getImgIds(catIds=[id])))
+            # Remove duplicates
+            image_ids = list(set(image_ids))
+        else:
+            # All images
+            image_ids = list(coco.imgs.keys())
+
+        # Add classes
+        for i in class_ids:
+            self.add_class("coco", i, coco.loadCats(i)[0]["name"])
+
+        # Add images
+        for i in image_ids:
+            self.add_image(
+                "coco", image_id=i,
+                path=os.path.join(image_dir, coco.imgs[i]['file_name']),
+                width=coco.imgs[i]["width"],
+                height=coco.imgs[i]["height"],
+                annotations=coco.loadAnns(coco.getAnnIds(
+                    imgIds=[i], catIds=class_ids, iscrowd=None)))
+        if return_coco:
+            return coco
+
+    def __len__(self):
+        return len(self.image_info)
 
 ############################################################
 #  COCO Evaluation

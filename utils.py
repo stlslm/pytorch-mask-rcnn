@@ -325,6 +325,7 @@ def resize_image(image, min_dim=None, max_dim=None, padding=False, bbox=None):
         if bbox is not None:
             bbox[:,0] += left_pad
             bbox[:,1] += top_pad
+            bbox = bbox.astype(np.int64)
     if bbox is None:
         return image, window, scale, padding
     else:

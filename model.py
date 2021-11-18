@@ -28,6 +28,8 @@ from . import visualize
 
 from .coco import SlmCocoDataset
 
+import albumentations as A
+
 ############################################################
 #  Logging Utility Functions
 ############################################################
@@ -1170,23 +1172,27 @@ def load_image_gt(dataset, config, image_id, augment=False,
     mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
     if is_coco:
-        image, window, scale, padding, bbox = utils.resize_image(
-            image,
-            min_dim=config.IMAGE_MIN_DIM,
-            max_dim=config.IMAGE_MAX_DIM,
-            padding=config.IMAGE_PADDING,
-            bbox=bbox)
+        # print("Deprecated. Please use albumetation pipeline to resize.")
+        h, w = image.shape[:2]
+        window = (0, 0, h, w)
+        # image, window, scale, padding, bbox = utils.resize_image(
+        #     image,
+        #     min_dim=config.IMAGE_MIN_DIM,
+        #     max_dim=config.IMAGE_MAX_DIM,
+        #     padding=config.IMAGE_PADDING,
+        #     bbox=bbox)
     else:
+        print("Using a deprecated pipeline i.e. resizing for non-coco dataset.")
         image, window, scale, padding = utils.resize_image(
             image,
             min_dim=config.IMAGE_MIN_DIM,
             max_dim=config.IMAGE_MAX_DIM,
             padding=config.IMAGE_PADDING,
             bbox=None)
-    mask = utils.resize_mask(mask, scale, padding)
+        mask = utils.resize_mask(mask, scale, padding)
 
     # Random horizontal flips.
-    if augment:
+    if isinstance(augment, bool):
         if random.randint(0, 1):
             image = np.fliplr(image)
             mask = np.fliplr(mask)
@@ -1213,9 +1219,31 @@ def load_image_gt(dataset, config, image_id, augment=False,
 
     def xywh2xyxy(bbox):
         """ convert bbox format (x,y,w,h) to (x0,y0,x1,y1) """
-        bbox[:,2] += bbox[:,0]
-        bbox[:,3] += bbox[:,1]
-        return bbox
+        if len(bbox)==0:
+            return bbox
+        else:
+            bbox[:,2] += bbox[:,0]
+            bbox[:,3] += bbox[:,1]
+            return bbox
+
+    if isinstance(augment, A.Compose):
+        """ augment pipeline """
+        labled_bbox = []
+        for ii in range(bbox.shape[0]):
+            lbl_bb = bbox[ii].tolist()
+            lbl_bb.append(dataset.class_names[class_ids[ii]])            
+            labled_bbox.append(lbl_bb)
+
+        transformed = augment(image=image,
+                                mask=mask,
+                                bboxes=labled_bbox,)
+                            
+        image = transformed["image"]
+        mask = transformed["mask"]
+        bbox = []
+        for bb in transformed["bboxes"]:
+            bbox.append(bb[:-1])
+        bbox = np.array(bbox).astype(np.int32)
 
     if not is_coco:
         return image, image_meta, class_ids, xywh2xyxy(bbox), mask
@@ -1438,6 +1466,42 @@ class Dataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return self.image_ids.shape[0]
+
+
+class AugmentDataset(Dataset):
+
+    def __init__(self, dataset, config, augment=None):
+        """
+            here augment is a pipeline from albumentation or None
+        """
+        assert not isinstance(augment, bool)
+        super(AugmentDataset, self).__init__(dataset, config, augment=False)
+        self.augment = augment
+
+    def __getitem__(self, image_index):
+        # Get GT bounding boxes and masks for image.
+        image_id = self.image_ids[image_index]
+        is_coco = self.dataset.image_info[image_id]["source"]=="coco"
+
+        if not is_coco:
+            # image, image_metas, gt_class_ids, gt_boxes, gt_masks = \
+            #     load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+            #                 use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+            return load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+                            use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+        elif not isinstance(self.dataset, SlmCocoDataset):
+            # image, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_area, gt_iscrowd = \
+            # load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+            #               use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+            return load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+                          use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+        else:
+            # image, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_iscrowd = \
+            # load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+            #               use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+            return load_image_gt(self.dataset, self.config, image_id, augment=self.augment,
+                          use_mini_mask=self.config.USE_MINI_MASK, is_coco=is_coco)
+
 
 
 ############################################################

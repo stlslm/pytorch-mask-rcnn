@@ -77,9 +77,10 @@ def apply_mask(image, mask, color, alpha=0.5):
 
 def display_instances(image, boxes, masks, class_ids, class_names,
                       scores=None, title="",
-                      figsize=(16, 16), ax=None):
+                      figsize=(16, 16), ax=None, box_format='xyxy', use_float_img=True):
     """
     boxes: [num_instance, (y1, x1, y2, x2, class_id)] in image coordinates.
+    box_format: xyxy | xywh | yxyx
     masks: [height, width, num_instances]
     class_ids: [num_instances]
     class_names: list of class names of the dataset
@@ -106,7 +107,11 @@ def display_instances(image, boxes, masks, class_ids, class_names,
     ax.axis('off')
     ax.set_title(title)
 
-    masked_image = image.astype(np.uint32).copy()
+    if not use_float_img:
+        """ old code """
+        masked_image = image.astype(np.uint32).copy()
+    else:
+        masked_image = image
     for i in range(N):
         color = colors[i]
 
@@ -114,14 +119,21 @@ def display_instances(image, boxes, masks, class_ids, class_names,
         if not np.any(boxes[i]):
             # Skip this instance. Has no bbox. Likely lost in image cropping.
             continue
-        y1, x1, y2, x2 = boxes[i]
+        if box_format == 'yxyx':
+            y1, x1, y2, x2 = boxes[i]
+        elif box_format == 'xyxy':
+            x1, y1, x2, y2 = boxes[i]
+        elif box_format == 'xywh':
+            x1, y1, w, h = boxes[i]
+            x2 = x1 + w 
+            y2 = y1 + h
         p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
                               alpha=0.7, linestyle="dashed",
                               edgecolor=color, facecolor='none')
         ax.add_patch(p)
 
         # Label
-        class_id = class_ids[i]
+        class_id = int(class_ids[i])
         score = scores[i] if scores is not None else None
         label = class_names[class_id]
         x = random.randint(x1, (x1 + x2) // 2)
@@ -144,7 +156,12 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             verts = np.fliplr(verts) - 1
             p = Polygon(verts, facecolor="none", edgecolor=color)
             ax.add_patch(p)
-    ax.imshow(masked_image.astype(np.uint8))
+
+    if not use_float_img:
+        """old code"""
+        ax.imshow(masked_image.astype(np.uint8))
+    else:
+        ax.imshow(masked_image)
     plt.show()
     
 

@@ -1363,7 +1363,7 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     return rpn_match, rpn_bbox
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, config, augment=True):
+    def __init__(self, dataset, config, augment=True, torchvision_compat=False):
         """A generator that returns images and corresponding target class ids,
             bounding box deltas, and masks.
 
@@ -1386,6 +1386,7 @@ class Dataset(torch.utils.data.Dataset):
             - gt_masks: [batch, height, width, MAX_GT_INSTANCES]. The height and width
                         are those of the image unless use_mini_mask is True, in which
                         case they are defined in MINI_MASK_SHAPE.
+            - torchvision_compat: True/False to enforce return __getitem__ function with torchvision compatible format
 
             outputs list: Usually empty in regular training. But if detection_targets
                 is True then the outputs list contains target class_ids, bbox deltas,
@@ -1399,6 +1400,7 @@ class Dataset(torch.utils.data.Dataset):
         self.dataset = dataset
         self.config = config
         self.augment = augment
+        self.torchvision_compat = torchvision_compat
 
         # Anchors
         # [anchor_count, (y1, x1, y2, x2)]
@@ -1453,16 +1455,28 @@ class Dataset(torch.utils.data.Dataset):
         image_metas = torch.from_numpy(image_metas)
         rpn_match = torch.from_numpy(rpn_match)
         rpn_bbox = torch.from_numpy(rpn_bbox).float()
-        gt_class_ids = torch.from_numpy(gt_class_ids)
+        gt_class_ids = torch.from_numpy(gt_class_ids).type(torch.int64)
         gt_boxes = torch.from_numpy(gt_boxes).float()
         gt_masks = torch.from_numpy(gt_masks.astype(int).transpose(2, 0, 1)).float()
 
-        if not is_coco:
-            return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks
-        elif not isinstance(self.dataset, SlmCocoDataset):
-            return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks, gt_area, gt_iscrowd
+        if not self.torchvision_compat:
+            if not is_coco:
+                return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks
+            elif not isinstance(self.dataset, SlmCocoDataset):
+                return images, image_metas, rpn_match, rpn_bbox, gt_class_ids, gt_boxes, gt_masks, gt_area, gt_iscrowd
+            else:
+                return images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_iscrowd
         else:
-            return images, image_metas, gt_class_ids, gt_boxes, gt_masks, gt_iscrowd
+            if isinstance(self.dataset, SlmCocoDataset):
+                target = dict()
+                target["boxes"] = gt_boxes.reshape(-1,4)
+                target["labels"] = gt_class_ids
+                target["masks"] = gt_masks
+                # target["image_id"] = 
+                # target["iscrowd"] = gt_iscrowd
+                return images, target
+            else:
+                print('returning format not support yet')
 
     def __len__(self):
         return self.image_ids.shape[0]
